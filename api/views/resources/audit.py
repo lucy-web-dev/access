@@ -7,6 +7,7 @@ from sqlalchemy import func, nullsfirst, nullslast
 from sqlalchemy.orm import aliased, joinedload, selectin_polymorphic, selectinload, with_polymorphic
 
 from api.apispec import FlaskApiSpecDecorators
+from api.authorization import AuthorizationHelpers
 from api.extensions import db
 from api.models import (
     AppGroup,
@@ -286,6 +287,11 @@ class UserGroupAuditResource(MethodResource):
                         OktaUserGroupMember.ended_at < db.func.now(),
                     )
                 )
+        if "needs_review" in search_args:
+            if search_args["needs_review"]:
+                query = query.filter(
+                    OktaUserGroupMember.should_expire.is_(False),
+                )
 
         if "direct" in search_args:
             if search_args["direct"]:
@@ -332,6 +338,7 @@ class UserGroupAuditResource(MethodResource):
                     "ended_at",
                     "created_reason",
                     "is_owner",
+                    "should_expire",
                     "access_request.id",
                     "user.id",
                     "user.created_at",
@@ -526,6 +533,67 @@ class GroupRoleAuditResource(MethodResource):
                 group_alias.name.asc() if order_by != "moniker" else nullslast(RoleGroupMap.created_at.asc()),
             )
 
+        if "role_owner_id" in search_args:
+            role_owner_id = search_args["role_owner_id"]
+            if role_owner_id == "@me":
+                role_owner_id = g.current_user_id
+            role_owner = (
+                OktaUser.query.filter(db.or_(OktaUser.id == role_owner_id, OktaUser.email.ilike(role_owner_id)))
+                .order_by(nullsfirst(OktaUser.deleted_at.desc()))
+                .first_or_404()
+            )
+            role_group_alias = aliased(RoleGroup)
+
+            # get current role ownerships
+            owner_role_ownerships = (
+                OktaUserGroupMember.query.options(joinedload(OktaUserGroupMember.group.of_type(RoleGroup)))
+                .filter(OktaUserGroupMember.user_id == role_owner.id)
+                .filter(OktaUserGroupMember.is_owner.is_(True))
+                .join(OktaUserGroupMember.group.of_type(role_group_alias))
+                .filter(
+                    db.or_(
+                        OktaUserGroupMember.ended_at.is_(None),
+                        OktaUserGroupMember.ended_at > db.func.now(),
+                    )
+                )
+            )
+
+            # if user is an admin, include unowned roles with expiring access
+            unowned_roles_admin = []
+            if AuthorizationHelpers.is_access_admin(role_owner_id):
+                owners_subquery = (
+                    db.session.query(OktaUserGroupMember.group_id)
+                    .filter(
+                        db.and_(
+                            OktaUserGroupMember.is_owner.is_(True),
+                            db.or_(OktaUserGroupMember.ended_at.is_(None), OktaUserGroupMember.ended_at > func.now()),
+                        )
+                    )
+                    .subquery()
+                )
+
+                unowned_roles_admin = RoleGroup.query.filter(
+                    db.and_(RoleGroup.deleted_at.is_(None), ~RoleGroup.id.in_(owners_subquery))
+                ).all()
+
+            # https://stackoverflow.com/questions/4186062/sqlalchemy-order-by-descending#comment52902932_9964966
+            query = query.filter(
+                db.or_(
+                    RoleGroupMap.role_group_id.in_(
+                        [o.group_id for o in owner_role_ownerships.with_entities(OktaUserGroupMember.group_id).all()]
+                    ),
+                    RoleGroupMap.role_group_id.in_([rgm.id for rgm in unowned_roles_admin]),
+                )
+            ).order_by(
+                nulls_order(
+                    getattr(
+                        group_alias.name if order_by == "moniker" else getattr(RoleGroupMap, order_by),
+                        "desc" if order_direction else "asc",
+                    )()
+                ),
+                group_alias.name.asc() if order_by != "moniker" else nullslast(RoleGroupMap.created_at.asc()),
+            )
+
         # Implement basic search with the "q" url parameter
         if "q" in search_args and len(search_args["q"]) > 0:
             like_search = f"%{search_args['q']}%"
@@ -600,6 +668,11 @@ class GroupRoleAuditResource(MethodResource):
                         RoleGroupMap.ended_at < db.func.now(),
                     )
                 )
+        if "needs_review" in search_args:
+            if search_args["needs_review"]:
+                query = query.filter(
+                    RoleGroupMap.should_expire.is_(False),
+                )
 
         return paginate(
             query,
@@ -611,6 +684,7 @@ class GroupRoleAuditResource(MethodResource):
                     "ended_at",
                     "created_reason",
                     "is_owner",
+                    "should_expire",
                     "group.deleted_at",
                     "group.id",
                     "group.type",

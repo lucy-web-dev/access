@@ -26,6 +26,10 @@ class SearchGroupPaginationRequestSchema(SearchPaginationRequestSchema):
     managed = fields.Boolean(load_only=True)
 
 
+class SearchRolePaginationRequestSchema(SearchPaginationRequestSchema):
+    owner_id = fields.String(load_only=True)
+
+
 class AuditOrderBy(Enum):
     moniker = 1  # Enum has a field called "name", so we can't use that
     created_at = 2
@@ -35,6 +39,7 @@ class AuditOrderBy(Enum):
 class SearchAuditPaginationRequestSchema(SearchPaginationRequestSchema):
     owner = fields.Boolean(load_only=True)
     active = fields.Boolean(load_only=True)
+    needs_review = fields.Boolean(load_only=True)
     managed = fields.Boolean(load_only=True)
     order_by = fields.Enum(AuditOrderBy, load_only=True, load_default=AuditOrderBy.created_at)
     order_desc = fields.Boolean(load_only=True, load_default=True)
@@ -54,6 +59,7 @@ class SearchGroupRoleAuditPaginationRequestSchema(SearchAuditPaginationRequestSc
     group_id = fields.String(load_only=True)
     role_id = fields.String(load_only=True)
     owner_id = fields.String(load_only=True)
+    role_owner_id = fields.String(load_only=True)
     app_owner = fields.Boolean(load_only=True)
     start_date = fields.Int(load_only=True)
     end_date = fields.Int(load_only=True)

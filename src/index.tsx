@@ -9,17 +9,23 @@ import * as Sentry from '@sentry/react';
 import App from './App';
 import Error from './pages/Error';
 
+import {appName} from './config/accessConfig';
+
+document.title = appName;
+const metaDesc = document.querySelector('meta[name="description"]');
+if (metaDesc) metaDesc.setAttribute('content', `${appName}!`);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {retry: false},
   },
 });
 
-if (['production', 'staging'].includes(process.env.NODE_ENV)) {
+if (['production', 'staging'].includes(import.meta.env.MODE)) {
   // Use a placeholder DSN as we'll be using the tunnel to proxy all Sentry React errors
   Sentry.init({
     dsn: 'https://user@example.ingest.sentry.io/1234567',
-    release: process.env.REACT_APP_SENTRY_RELEASE,
+    release: import.meta.env.VITE_SENTRY_RELEASE,
     integrations: [Sentry.replayIntegration()],
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 1.0,

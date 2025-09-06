@@ -10,14 +10,14 @@ on:
 jobs:
   semgrep:
     name: semgrep/ci
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
     container:
       image: returntocorp/semgrep
     if: (github.actor != 'dependabot[bot]')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - run: semgrep ci

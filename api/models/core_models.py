@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Callable, Dict, List, Optional
 
+from api import config
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, validates
 from sqlalchemy.sql import expression
@@ -39,6 +40,11 @@ class OktaUserGroupMember(db.Model):
     ended_actor_id: Mapped[Optional[str]] = mapped_column(db.Unicode(50), db.ForeignKey("okta_user.id"))
 
     created_reason: Mapped[str] = mapped_column(db.Unicode(1024), nullable=False, default="", server_default="")
+
+    # This field is set to True when an owner chooses to not renew access in the Expiring Access workflow
+    should_expire: Mapped[bool] = mapped_column(
+        db.Boolean, nullable=False, server_default=expression.false(), default=False
+    )
 
     # See more details on specifying alternative join conditions for relationships at
     # https://docs.sqlalchemy.org/en/14/orm/join_conditions.html#specifying-alternate-join-conditions
@@ -455,6 +461,11 @@ class RoleGroupMap(db.Model):
 
     created_reason: Mapped[str] = mapped_column(db.Unicode(1024), nullable=False, default="", server_default="")
 
+    # This field is set to True when an owner chooses to not renew access in the Expiring Access workflow
+    should_expire: Mapped[bool] = mapped_column(
+        db.Boolean, nullable=False, server_default=expression.false(), default=False
+    )
+
     # See more details on specifying alternative join conditions for relationships at
     # https://docs.sqlalchemy.org/en/14/orm/join_conditions.html#specifying-alternate-join-conditions
     role_group: Mapped["RoleGroup"] = db.relationship(
@@ -615,7 +626,7 @@ class AppGroup(OktaGroup):
 
 
 class App(db.Model):
-    ACCESS_APP_RESERVED_NAME = "Access"
+    ACCESS_APP_RESERVED_NAME = config.APP_NAME
 
     # A 20 character random string like Okta IDs
     id: Mapped[str] = mapped_column(db.Unicode(20), primary_key=True, nullable=False)

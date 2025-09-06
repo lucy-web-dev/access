@@ -40,6 +40,7 @@ import {PolymorphicGroup, RoleGroup, RoleMember, OktaUser} from '../../api/apiSc
 import {canManageGroup, isAccessAdmin, isGroupOwner} from '../../authorization';
 import {minTagTime, ownerCantAddSelf, requiredReason} from '../../helpers';
 import {useCurrentUser} from '../../authentication';
+import accessConfig from '../../config/accessConfig';
 
 dayjs.extend(IsSameOrBefore);
 
@@ -78,24 +79,10 @@ const GROUP_TYPE_ID_TO_LABELS: Record<string, string> = {
 
 const RFC822_FORMAT = 'ddd, DD MMM YYYY HH:mm:ss ZZ';
 
-const UNTIL_ID_TO_LABELS: Record<string, string> = {
-  '43200': '12 Hours',
-  '432000': '5 Days',
-  '1209600': 'Two Weeks',
-  '2592000': '30 Days',
-  '7776000': '90 Days',
-  indefinite: 'Indefinite',
-  custom: 'Custom',
-} as const;
-
-const UNTIL_JUST_NUMERIC_ID_TO_LABELS: Record<string, string> = {
-  '43200': '12 Hours',
-  '432000': '5 Days',
-  '1209600': 'Two Weeks',
-  '2592000': '30 Days',
-  '7776000': '90 Days',
-} as const;
-
+const UNTIL_ID_TO_LABELS: Record<string, string> = accessConfig.ACCESS_TIME_LABELS;
+const UNTIL_JUST_NUMERIC_ID_TO_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(UNTIL_ID_TO_LABELS).filter(([key]) => !isNaN(Number(key))),
+);
 const UNTIL_OPTIONS = Object.entries(UNTIL_ID_TO_LABELS).map(([id, label], index) => ({id: id, label: label}));
 
 function AddRolesDialog(props: AddRolesDialogProps) {
@@ -110,7 +97,7 @@ function AddRolesDialog(props: AddRolesDialogProps) {
         return out;
       }, new Array<string>()) ?? [];
 
-  const [until, setUntil] = React.useState('1209600');
+  const [until, setUntil] = React.useState(accessConfig.DEFAULT_ACCESS_TIME);
   const [roleSearchInput, setRoleSearchInput] = React.useState('');
   const [roles, setRoles] = React.useState<Array<RoleGroup>>([]);
   const [requestError, setRequestError] = React.useState('');
@@ -144,7 +131,10 @@ function AddRolesDialog(props: AddRolesDialogProps) {
         {} as Record<string, string>,
       );
 
-    timeLimitUntil = timeLimit >= 1209600 ? '1209600' : Object.keys(filteredUntil).at(-1)!;
+    timeLimitUntil =
+      timeLimit >= Number(accessConfig.DEFAULT_ACCESS_TIME)
+        ? accessConfig.DEFAULT_ACCESS_TIME
+        : Object.keys(filteredUntil).at(-1)!;
 
     labels = Object.entries(Object.assign({}, filteredUntil, {custom: 'Custom'})).map(([id, label], index) => ({
       id: id,
@@ -237,12 +227,27 @@ function AddRolesDialog(props: AddRolesDialogProps) {
     setRoles(roles.filter((user) => user.id != userId));
   };
 
+  // Determine if a role should be disabled
+  const isOptionDisabled = (option: RoleGroup) => {
+    // Already in the list to be added
+    if (roles.map((group) => group.id).includes(option.id)) {
+      return true;
+    }
+
+    if (disallowOwnerAdd && !isAccessAdmin(currentUser)) {
+      return currentUserRoleMembershipIds.includes(option.id!);
+    }
+
+    return false;
+  };
+
   const addRolesText = props.owner ? 'Roles as Owners' : 'Roles as Members';
+  const ownerOrMember = props.owner ? 'owner' : 'member';
 
   return (
     <Dialog open fullWidth onClose={() => props.setOpen(false)}>
       <FormContainer<AddRolesForm>
-        defaultValues={timeLimit ? {until: timeLimitUntil!} : {until: '1209600'}}
+        defaultValues={timeLimit ? {until: timeLimitUntil!} : {until: accessConfig.DEFAULT_ACCESS_TIME}}
         onSuccess={(formData) => submit(formData)}>
         <DialogTitle>Add {addRolesText}</DialogTitle>
         <DialogContent>
@@ -255,9 +260,13 @@ function AddRolesDialog(props: AddRolesDialogProps) {
               : null}
           </Typography>
           <Typography variant="subtitle1" color="text.accent">
-            {disallowOwnerAdd && !isAccessAdmin(currentUser)
-              ? 'Certain roles cannot be added to this group due to tag constraints.'
-              : null}
+            {disallowOwnerAdd && !isAccessAdmin(currentUser) ? (
+              <>
+                Certain roles cannot be added to this group due to the{' '}
+                <strong>owner can't add themselves as {ownerOrMember}</strong> tag constraint. Please get another owner
+                to add the role or, if you own the role, make a role request instead.
+              </>
+            ) : null}
           </Typography>
           {requestError != '' ? <Alert severity="error">{requestError}</Alert> : null}
           <FormControl size="small" margin="normal" fullWidth>
@@ -307,32 +316,42 @@ function AddRolesDialog(props: AddRolesDialogProps) {
               autocompleteProps={{
                 getOptionLabel: (option) => option.name,
                 isOptionEqualToValue: (option, value) => option.id == value.id,
-                filterOptions: (options) =>
-                  options.filter((option) =>
-                    disallowOwnerAdd && !isAccessAdmin(currentUser)
-                      ? !currentUserRoleMembershipIds.includes(option.id!)
-                      : false || !roles.map((group) => group.id).includes(option.id),
-                  ),
+                getOptionDisabled: (option) => isOptionDisabled(option),
                 onInputChange: (event, newInputValue, reason) => {
                   if (reason != 'reset') {
                     setRoleSearchInput(newInputValue);
                   }
                 },
                 onChange: (event, value) => {
-                  if (value != null) {
+                  if (value != null && !isOptionDisabled(value)) {
                     setRoles([value, ...roles]);
                     setRoleSearchInput('');
                   }
                 },
                 inputValue: roleSearchInput,
                 renderOption: (props, option, state) => {
+                  const disabled = isOptionDisabled(option);
                   return (
-                    <li {...props}>
+                    <li
+                      {...props}
+                      style={{
+                        ...props.style,
+                        opacity: disabled ? 0.5 : 1,
+                        cursor: disabled ? 'not-allowed' : 'pointer',
+                      }}>
                       <Grid container alignItems="center">
                         <Grid item>
                           <Box>{option.name}</Box>
                           <Typography variant="body2" color="text.secondary">
                             {GROUP_TYPE_ID_TO_LABELS[option.type]}
+                            {disabled &&
+                            disallowOwnerAdd &&
+                            !isAccessAdmin(currentUser) &&
+                            currentUserRoleMembershipIds.includes(option.id!)
+                              ? ' (Cannot add due to tag constraint)'
+                              : disabled && roles.map((group) => group.id).includes(option.id)
+                                ? ' (Already selected)'
+                                : ''}
                           </Typography>
                         </Grid>
                       </Grid>
@@ -347,7 +366,7 @@ function AddRolesDialog(props: AddRolesDialogProps) {
             <List
               sx={{
                 overflow: 'auto',
-                minHeight: 300,
+                minHeight: 250,
                 maxHeight: 600,
                 backgroundColor: (theme) =>
                   theme.palette.mode === 'light' ? theme.palette.grey[100] : theme.palette.grey[900],

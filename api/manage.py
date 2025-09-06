@@ -102,7 +102,7 @@ def _init_builtin_apps(admin_okta_user_email: str) -> None:
     click.echo("Creating Access app and groups")
     CreateApp(
         owner_id=admin_okta_user.id,
-        app={"name": App.ACCESS_APP_RESERVED_NAME, "description": "The Access Portal"},
+        app={"name": App.ACCESS_APP_RESERVED_NAME, "description": f"The {App.ACCESS_APP_RESERVED_NAME} Portal"},
     ).execute()
 
 
@@ -179,16 +179,30 @@ def fix_role_memberships(dry_run: bool) -> None:
 
 @click.command("notify")
 @click.option(
-    "--owner", is_flag=True, show_default=True, default=False, help="If set will notify owners instead of individuals"
+    "--owner",
+    is_flag=True,
+    show_default=True,
+    default=False,
+    help="If set will notify group owners instead of individuals",
+)
+@click.option(
+    "--role-owner",
+    is_flag=True,
+    show_default=True,
+    default=False,
+    help="If set will notify role owners instead of individuals",
 )
 @with_appcontext
-def notify(owner: bool) -> None:
+def notify(owner: bool, role_owner: bool) -> None:
     from api.syncer import (
         expiring_access_notifications_owner,
+        expiring_access_notifications_role_owner,
         expiring_access_notifications_user,
     )
 
     if owner:
         expiring_access_notifications_owner()
+    elif role_owner:
+        expiring_access_notifications_role_owner()
     else:
         expiring_access_notifications_user()

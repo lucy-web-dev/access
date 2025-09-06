@@ -43,6 +43,7 @@ import {isAccessAdmin, isGroupOwner} from '../../authorization';
 import {minTagTimeGroups, requiredReasonGroups, ownerCantAddSelf} from '../../helpers';
 import {useCurrentUser} from '../../authentication';
 import {group} from 'console';
+import accessConfig from '../../config/accessConfig';
 
 dayjs.extend(IsSameOrBefore);
 
@@ -79,24 +80,10 @@ const GROUP_TYPE_ID_TO_LABELS: Record<string, string> = {
 
 const RFC822_FORMAT = 'ddd, DD MMM YYYY HH:mm:ss ZZ';
 
-const UNTIL_ID_TO_LABELS: Record<string, string> = {
-  '43200': '12 Hours',
-  '432000': '5 Days',
-  '1209600': 'Two Weeks',
-  '2592000': '30 Days',
-  '7776000': '90 Days',
-  indefinite: 'Indefinite',
-  custom: 'Custom',
-} as const;
-
-const UNTIL_JUST_NUMERIC_ID_TO_LABELS: Record<string, string> = {
-  '43200': '12 Hours',
-  '432000': '5 Days',
-  '1209600': 'Two Weeks',
-  '2592000': '30 Days',
-  '7776000': '90 Days',
-} as const;
-
+const UNTIL_ID_TO_LABELS: Record<string, string> = accessConfig.ACCESS_TIME_LABELS;
+const UNTIL_JUST_NUMERIC_ID_TO_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(UNTIL_ID_TO_LABELS).filter(([key]) => !isNaN(Number(key))),
+);
 const UNTIL_OPTIONS = Object.entries(UNTIL_ID_TO_LABELS).map(([id, label], index) => ({id: id, label: label}));
 
 function AddGroupsDialog(props: AddGroupsDialogProps) {
@@ -121,7 +108,7 @@ function AddGroupsDialog(props: AddGroupsDialogProps) {
     props.group.active_user_memberships?.map((membership) => membership.active_user!.id).includes(currentUser.id) ??
     false;
 
-  const [until, setUntil] = React.useState('1209600');
+  const [until, setUntil] = React.useState(accessConfig.DEFAULT_ACCESS_TIME);
   const [groupSearchInput, setGroupSearchInput] = React.useState('');
   const [groups, setGroups] = React.useState<Array<OktaGroup | AppGroup>>([]);
   const [requestError, setRequestError] = React.useState('');
@@ -243,7 +230,9 @@ function AddGroupsDialog(props: AddGroupsDialogProps) {
           </Typography>
           <Typography variant="subtitle1" color="text.accent">
             {disallowedGroups.length != 0 && !isAccessAdmin(currentUser)
-              ? 'Some groups may not be added due to group tag constraints.'
+              ? // this case will never be hit as-is since admins are exempt from owner add constraints
+                // leaving in in case we change the visibility of this dialog in the future
+                'Some groups may not be added due to group tag constraints.'
               : null}
           </Typography>
           {requestError != '' ? <Alert severity="error">{requestError}</Alert> : null}
